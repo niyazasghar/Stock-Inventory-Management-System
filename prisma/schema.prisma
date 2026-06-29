@@ -1,0 +1,194 @@
+generator client {
+  provider      = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  name      String
+  role      String   @default("ADMIN") // ADMIN, WAREHOUSE_MANAGER, SALES, PURCHASE, ACCOUNTANT
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Supplier {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String?
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  products       Product[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model Customer {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String?
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  salesOrders   SalesOrder[]
+}
+
+model Warehouse {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  location  String
+  manager   String?
+  status    String   @default("ACTIVE") // ACTIVE, INACTIVE, FULL
+  capacity  Int      @default(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inventory      Inventory[]
+  movementsFrom  StockMovement[] @relation("SourceWarehouse")
+  movementsTo    StockMovement[] @relation("DestinationWarehouse")
+}
+
+model Category {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products  Product[]
+}
+
+model Product {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  sku          String   @unique
+  name         String
+  description  String?
+  categoryId   String   @db.ObjectId
+  supplierId   String   @db.ObjectId
+  unitPrice    Float
+  sellingPrice Float
+  reorderLevel Int      @default(10)
+  status       String   @default("ACTIVE") // ACTIVE, DISCONTINUED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  category     Category  @relation(fields: [categoryId], references: [id])
+  supplier     Supplier  @relation(fields: [supplierId], references: [id])
+  
+  inventory      Inventory[]
+  movements      StockMovement[]
+  poItems        PurchaseOrderItem[]
+  soItems        SalesOrderItem[]
+}
+
+model Inventory {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId   String   @db.ObjectId
+  warehouseId String   @db.ObjectId
+  quantity    Int      @default(0)
+  lastUpdated DateTime @default(now())
+
+  product     Product    @relation(fields: [productId], references: [id])
+  warehouse   Warehouse  @relation(fields: [warehouseId], references: [id])
+
+  @@unique([productId, warehouseId])
+}
+
+model StockMovement {
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId            String   @db.ObjectId
+  type                 String   // IN, OUT, TRANSFER, ADJUSTMENT, RETURN, DAMAGED
+  quantity             Int
+  sourceWarehouseId    String?  @db.ObjectId
+  destinationWarehouseId String?  @db.ObjectId
+  reason               String?
+  referenceId          String?  // PO or SO ID if applicable
+  createdAt            DateTime @default(now())
+  createdBy            String?  // User ID or name
+
+  product              Product    @relation(fields: [productId], references: [id])
+  sourceWarehouse      Warehouse? @relation("SourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  destinationWarehouse Warehouse? @relation("DestinationWarehouse", fields: [destinationWarehouseId], references: [id])
+}
+
+model PurchaseOrder {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  poNumber    String   @unique
+  supplierId  String   @db.ObjectId
+  status      String   @default("DRAFT") // DRAFT, SENT, APPROVED, RECEIVED, CANCELLED
+  totalAmount Float    @default(0)
+  expectedDate DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  supplier    Supplier            @relation(fields: [supplierId], references: [id])
+  items       PurchaseOrderItem[]
+  invoice     Invoice?            @relation("POInvoice")
+}
+
+model PurchaseOrderItem {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  purchaseOrderId String   @db.ObjectId
+  productId       String   @db.ObjectId
+  quantity        Int
+  unitPrice       Float
+  total           Float
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  product         Product       @relation(fields: [productId], references: [id])
+}
+
+model SalesOrder {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  soNumber    String   @unique
+  customerId  String   @db.ObjectId
+  status      String   @default("NEW") // NEW, PROCESSING, SHIPPED, DELIVERED, CANCELLED
+  totalAmount Float    @default(0)
+  orderDate   DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customer    Customer          @relation(fields: [customerId], references: [id])
+  items       SalesOrderItem[]
+  invoice     Invoice?          @relation("SOInvoice")
+}
+
+model SalesOrderItem {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  salesOrderId  String   @db.ObjectId
+  productId     String   @db.ObjectId
+  quantity      Int
+  unitPrice     Float
+  total         Float
+
+  salesOrder    SalesOrder @relation(fields: [salesOrderId], references: [id])
+  product       Product    @relation(fields: [productId], references: [id])
+}
+
+model Invoice {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceNumber   String   @unique
+  type            String   // PURCHASE, SALES
+  amount          Float
+  dueDate         DateTime?
+  paymentStatus   String   @default("PENDING") // PENDING, PAID, OVERDUE
+  paymentMethod   String?
+  issuedDate      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  purchaseOrderId String?  @db.ObjectId @unique
+  salesOrderId    String?  @db.ObjectId @unique
+
+  purchaseOrder   PurchaseOrder? @relation("POInvoice", fields: [purchaseOrderId], references: [id])
+  salesOrder      SalesOrder?    @relation("SOInvoice", fields: [salesOrderId], references: [id])
+}
